@@ -16,9 +16,14 @@ You are now ready to run the model.
 
 The parameter file values can be modified to control the behaviour of different celltypes in the model. 
 The modifiable values are:
+
 radius - cell radius
+
 inhib_weight - larger values suppress division when cell is crowded
+
 div_bias - higher values lead to faster dividing cells
+
 r	g	b	- controls the colors for plotting each cell type
+
 friction - values between 0 and 1. Controls how much cells move in response to being pushed by other cells.
 
