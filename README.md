@@ -6,7 +6,9 @@ Click on the drop-down menu in the top-right (near the green run button), and se
 Click the "+" icon to add a new configuration and choose "Application".
 Set the Main class to be ExampleOffLattice.
 Add program arguments. The arguments format is as follows:
+
 abm/parameters.csv output/ -v -i -o
+
 The first argument is the path to a valid parameter file.
 The second argument is the path to a folder where output will be saved. 
 Arguments 3-5 are optional flags: -v enables visualisation, -i enables immune infiltration, -o enables output saving. 
