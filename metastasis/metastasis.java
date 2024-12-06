@@ -4,6 +4,7 @@ import HAL.GridsAndAgents.AgentGrid2D;
 import HAL.GridsAndAgents.AgentSQ2Dunstackable;
 import HAL.GridsAndAgents.AgentSQ2D;
 import HAL.Gui.GridWindow;
+import HAL.Gui.OpenGL2DWindow;
 import HAL.Gui.UIGrid;
 import HAL.Tools.FileIO;
 import HAL.Rand;
@@ -15,52 +16,58 @@ import java.util.*;
 //cells grow and mutate
 class CellEx extends AgentSQ2D<metastasis>{
     int nMutations;
-    int wgd = 0;
-    double MMPGen=.01;
-    double ECMDeg=0.01;
-    int popMax=4; // max number of agents that can populate a site
-
     double ECMGradX,ECMGradY;
-    double HaptoCoef=0.001;
-
-    double pMove = 0.001;
     double pwgd = 0.001;
-    void Mutate(){
-        if(nMutations< G.MAX_MUTATIONS && G.rn.Double()< G.MUT_PROB){
-            nMutations++;
+
+    public enum CellType {
+
+        tumor, wgd, vessel;
+        double MMPGen,ECMDeg,HaptoCoef,pMove,space;
+        int color;
+        // Constructor for initializing the parameters
+        public void setParams(double MMPGen, double ECMDeg, double HaptoCoef,double pMove,int color, double space) {
+            this.color=color;
+            this.MMPGen=MMPGen;
+            this.ECMDeg=ECMDeg;
+            this.HaptoCoef=HaptoCoef;
+            this.pMove=pMove;
+            this.space=space;
         }
-        if(G.rn.Double()<pwgd){
-            wgd=1-wgd;
-            if(wgd==1){
-                //pMove=pMove*2;
-                HaptoCoef=HaptoCoef*2;
-            }else{
-                //pMove=pMove/2;
-                HaptoCoef=HaptoCoef/2;
-            }
-        }
+
     }
 
-    void Draw(int pop){
-        //double shade = (double) pop /popMax;
-        //G.vis.SetPix(Xsq(), Ysq(), Util.RGB(shade, shade,shade));//sets a single pixel
+    CellType type;
+    public static void initialize_types(){
+        CellType.valueOf("wgd").setParams(0.01,0.01,0.002,0.01,Util.RGB(0,1,0),0.5);
+        CellType.valueOf("tumor").setParams(0.01,0.01,0.002,0.002,Util.RGB(0,0,1),0.25);
+        CellType.valueOf("vessel").setParams(0.0,0.0,0.0,0.0,Util.RGB(1,0,0),1);
+    }
+
+    public void Init(CellType type) {
+        this.type = type;
+        // Any parameters that belong to the base clase could be set below:
     }
 
     void Divide(){
-        int pop = G.PopAt(Isq());//finds von neumann neighborhood indices around cell.
-        if(pop<popMax){
-            CellEx daughter= G.NewAgentSQ(Isq());//generate a daughter, the other is technically the original cell
-            daughter.nMutations=nMutations;//start both daughters with same number of mutations
-            daughter.Draw(pop);
-            Mutate();//during division, there is a possibility of mutation of one or both daughters
-            daughter.Mutate();
+        ArrayList<CellEx> agents = new ArrayList<>();
+        G.GetAgents(agents,Isq());
+        double space = 0;
+        for(CellEx c:agents) space=space+c.type.space;
+        if((1-space)>=type.space){
+            if(type==CellType.wgd | G.rn.Double()>pwgd){
+                CellEx daughter= G.NewAgentSQ(Isq());//generate a daughter, the other is technically the original cell
+                daughter.Init(type);
+            } else{
+                Init(CellType.wgd);
+            }
         }
     }
 
 
     void interactWithFields(gridManager M){
-        M.ECM.Add(Isq(),-ECMDeg*M.ECM.Get(Isq()));
-        M.MMP.Add(Isq(), MMPGen);
+        M.ECM.Add(Isq(),-type.ECMDeg*M.ECM.Get(Isq()));
+        M.MMP.Add(Isq(), type.MMPGen);
+        // IDK if its best for the cells to know these things or not. Think on it again when code is more done
         ECMGradX = M.ECM.Get(Math.min(Xsq()+1,G.xDim-1),Ysq())-M.ECM.Get(Math.max(Xsq()-1,0),Ysq());
         ECMGradY = M.ECM.Get(Xsq(),Math.min(Ysq()+1,G.yDim-1))-M.ECM.Get(Xsq(),Math.max(Ysq()-1,0));
     }
@@ -70,74 +77,63 @@ class CellEx extends AgentSQ2D<metastasis>{
         return -1;
     }
     void tryMove(){
-        // try move due to diffusion
-        double[] pq={Math.max(0,ECMGradY*HaptoCoef)+pMove/4,
-                Math.max(0,ECMGradX*HaptoCoef)+pMove/4,
-                Math.max(0,-ECMGradX*HaptoCoef)+pMove/4,
-                Math.max(0,-ECMGradY*HaptoCoef)+pMove/4,
-                1-pMove};
+        // try move due to diffusion & haptotaxis
+        // must be a better way to write this
+        double[] pq={Math.max(0,ECMGradY*type.HaptoCoef)+type.pMove/4,
+                Math.max(0,ECMGradX*type.HaptoCoef)+type.pMove/4,
+                Math.max(0,-ECMGradX*type.HaptoCoef)+type.pMove/4,
+                Math.max(0,-ECMGradY*type.HaptoCoef)+type.pMove/4,
+                1-type.pMove};
         double pTotal = 0.;
         for(double d :pq) pTotal+=d;
         for(int i = 0; i<pq.length;i++) pq[i]/=pTotal;
 
         int newIndex = selectIndex(pq);
 
-        if(newIndex==0){
-            MoveSafeSQ(G.ItoX(Isq()),G.ItoY(Isq())+1);
+        int newX = Xsq();
+        int newY = Ysq();
+        switch (newIndex) {
+            case 0:
+                newY = newY+1; break;
+            case 1:
+                newX = newX+1; break;
+            case 2:
+                newY = newY-1; break;
+            case 3:
+                newX = newX-1; break;
+            default:
+                break;
         }
-        if(newIndex==1){
-            MoveSafeSQ(G.ItoX(Isq())+1,G.ItoY(Isq()));
-        }
-        if(newIndex==2){
-            MoveSafeSQ(G.ItoX(Isq()),G.ItoY(Isq())-1);
-        }
-        if(newIndex==3){
-            MoveSafeSQ(G.ItoX(Isq())-1,G.ItoY(Isq()));
+
+        if(G.In(newX,newY)){
+            ArrayList<CellEx> agents = new ArrayList<>();
+            G.GetAgents(agents,newX,newY);
+            double space = 0;
+            for(CellEx c:agents) space=space+c.type.space;
+            if(1-space>=type.space) MoveSQ(newX,newY);
         }
     }
-}
-
-class vessels {
-    List<int[]> coords;
-    double vesselValue = 10.;
-
-    public vessels(int N, int xmax, int ymax, Rand rn) {
-        coords = new ArrayList<>();
-        for (int i = 0; i < N; i++) {
-
-            int x = rn.Int(xmax);
-            int y = rn.Int(ymax);
-            coords.add(new int[]{x, y});
-        }
-    }
-
-    //void interactWithFields(gridManager M){
-      //  for(int[] coord : coords){
-        //    M.O2.Set(coord[0],coord[1],vesselValue);
-        //}
-    //}
 }
 
 public class metastasis extends AgentGrid2D<CellEx> {
     final static int BLACK= Util.RGB(0,0,0);
     double DIV_PROB =0.2;
-    double MUT_PROB =0.003;
-    double DIE_PROB =0.05;
+    double DIE_PROB =0.02;
     double MUT_ADVANTAGE =1.08;
     int MAX_MUTATIONS =19;
     int[]mutCounts=new int[MAX_MUTATIONS+1];//+1 to count for un-mutated type
     int[]hood=Util.GenHood2D(new int[]{1,0,-1,0,0,1,0,-1}); //equivalent to int[]hood=Util.VonNeumannHood(false);
     Rand rn=new Rand(1);
-    UIGrid vis;
+    OpenGL2DWindow vis;
     FileIO outputFile=null;
 
     gridManager M;
 
-    public metastasis(int x, int y, UIGrid vis) {
+    public metastasis(int x, int y, OpenGL2DWindow vis) {
         super(x, y, CellEx.class);
         this.vis=vis;
     }
-    public metastasis(int x, int y, UIGrid vis, String outputFileName) {
+    public metastasis(int x, int y, OpenGL2DWindow vis, String outputFileName) {
         super(x, y, CellEx.class);
         this.vis=vis;
         outputFile=new FileIO(outputFileName,"w");
@@ -148,41 +144,27 @@ public class metastasis extends AgentGrid2D<CellEx> {
         int len=MapHood(circleHood,xDim/2,yDim/2);
         for (int i = 0; i < len; i++) {
             CellEx c=NewAgentSQ(circleHood[i]);
-            c.nMutations=0;
-            c.Draw(1);
+            c.Init(CellEx.CellType.tumor);
+        }
+        // also initialize the vessels here?
+        int N = 100;
+        for (int i = 0; i < N; i++) {
+            int x = rn.Int(xDim);
+            int y = rn.Int(yDim);
+            CellEx c=NewAgentSQ(x,y);
+            c.Init(CellEx.CellType.vessel);
         }
     }
 
-    public void drawAllCells(){
-        Map<List<Integer>, double[]> map = new HashMap<>();
-        for (CellEx c : this) {
-            List<Integer> key = Arrays.asList(c.Xsq(), c.Ysq());
-            double[] value = new double[]{(double) c.wgd / c.popMax, (double)(1 - c.wgd) / c.popMax, (double) c.wgd / c.popMax};
-
-            map.merge(key, value, (oldValue, newValue) -> {
-                for (int i = 0; i < oldValue.length; i++) {
-                    oldValue[i] += newValue[i];
-                }
-                return oldValue;
-            });
-        }
-        for (Map.Entry<List<Integer>, double[]> entry : map.entrySet()) {
-            List<Integer> key = entry.getKey();
-            double[] value = entry.getValue();
-            vis.SetPix(key.get(0), key.get(1), Util.RGB(value[0], value[1], value[2]));
-        }
-
-
-    }
     public void StepCells(int tick){
-        Arrays.fill(mutCounts,0);//clear the mutation counts
         for (CellEx c : this) {//iterate over all cells in the grid
-            mutCounts[c.nMutations]++;//count up all cell types for this timestep
+            if(c.type== CellEx.CellType.vessel) {
+                // ... vessel stuff
+                continue;
+            }
             c.interactWithFields(M);
             c.tryMove();
             if(rn.Double()< DIE_PROB){
-                int newPop = PopAt(c.Isq())-1;
-                c.Draw(newPop);
                 c.Dispose();//removes cell from sptial grid and iteration
             }
             else if(rn.Double()< DIV_PROB*Math.pow(MUT_ADVANTAGE,c.nMutations)){//application of mutational advantage
@@ -195,36 +177,51 @@ public class metastasis extends AgentGrid2D<CellEx> {
         ShuffleAgents(rn);//shuffles order of for loop iteration
 //        IncTick();//increments timestep, including newly generated cells in the next round of iteration
     }
+    // these are utility functions for adding colors, perhaps should be elsewhere.
+    public static int AddARGB(int color1, int color2) {
+        int r = Math.min(255, ((color1 >> 16) & 0xff) + ((color2 >> 16) & 0xff));
+        int g = Math.min(255, ((color1 >> 8) & 0xff) + ((color2 >> 8) & 0xff));
+        int b = Math.min(255, (color1 & 0xff) + (color2 & 0xff));
+        return 0xff000000 | (r << 16) | (g << 8) | b;
+    }
 
-    public void drawMMP(int xshift,int yshift){
-        for(int i =0; i<(xDim*yDim); i++){
-            vis.SetPix(ItoX(i)+xshift,ItoY(i)+yshift,Util.RGB(M.MMP.Get(i),0,0));
-        }
+    public static int MulARGB(int color, double factor) {
+        int r = Math.min(255, (int)(((color >> 16) & 0xff) * factor));
+        int g = Math.min(255, (int)(((color >> 8) & 0xff) * factor));
+        int b = Math.min(255, (int)((color & 0xff) * factor));
+        return 0xff000000 | (r << 16) | (g << 8) | b;
     }
-    public void drawECM(int xshift,int yshift){
-        for(int i =0; i<(xDim*yDim); i++){
-            vis.SetPix(ItoX(i)+xshift,ItoY(i)+yshift,Util.RGB(0,0,M.ECM.Get(i)));
+    public void draw(){
+        for(int i = 0; i< length; i++){
+            ArrayList<CellEx> agents = new ArrayList<>();
+            GetAgents(agents,i);
+            int value = BLACK;
+            for(CellEx a : agents){
+                value = AddARGB(value,MulARGB(a.type.color,a.type.space));
+            }
+            vis.SetPix(i,value);
+            vis.SetPix(i + length,Util.RGB(M.MMP.Get(i),0,0));
+            vis.SetPix(i + 2*length,Util.RGB(0,0,M.ECM.Get(i)));
         }
+        vis.Update();
     }
+
     public static void main(String[]args){
         ArrayList<Double[]>out=new ArrayList<>();
         //int x=500,y=500,scaleFactor=2;
         int x=200,y=200,scaleFactor=2;
-        GridWindow vis=new GridWindow(3*x,y,scaleFactor);//used for visualization
+        OpenGL2DWindow vis = new OpenGL2DWindow("Primary", 9*x, 3*y, 3*x, y);
         metastasis grid=new metastasis(x,y,vis);
+        CellEx.initialize_types();
         grid.InitTumor(5);
         grid.M = new gridManager(x,y);
-        vessels V = new vessels(100,x,y, grid.rn);
-
         for (int tick = 0; tick < 20000; tick++) {
             vis.TickPause(0);//set to nonzero value to cap tick rate.
-            grid.drawMMP(x,0);
-            grid.drawECM(2*x,0);
-            grid.drawAllCells();
+            grid.draw();
             grid.StepCells(tick);
             grid.M.degradeECM();
             grid.M.diffuse();
-
+            if(vis.IsClosed()) break;
         }
     }
 }
