@@ -1,14 +1,10 @@
 package metastasis;
 
 import HAL.GridsAndAgents.AgentGrid2D;
-import HAL.GridsAndAgents.AgentSQ2Dunstackable;
 import HAL.GridsAndAgents.AgentSQ2D;
-import HAL.Gui.GridWindow;
 import HAL.Gui.OpenGL2DWindow;
-import HAL.Gui.UIGrid;
 import HAL.Tools.FileIO;
 import HAL.Rand;
-import HAL.Tools.PhylogenyTracker.Genome;
 import HAL.Util;
 
 import java.util.*;
@@ -17,7 +13,9 @@ import java.util.*;
 class CellEx extends AgentSQ2D<metastasis>{
     int nMutations;
     double ECMGradX,ECMGradY;
-    double pwgd = 0.001;
+    double pwgd = 0.01;
+
+    double pIn = 0.001;
 
     public enum CellType {
 
@@ -63,6 +61,18 @@ class CellEx extends AgentSQ2D<metastasis>{
         }
     }
 
+    boolean tryIntravasate(){
+        // if a vessel can share a site with a tumor cell we'd need to use getAgents()
+        if(G.rn.Double()< pIn){
+            int nopts = MapHood(G.hood);
+            int trial = G.hood[G.rn.Int(nopts)];
+            if(G.PopAt(trial)==0) return false;
+            if(G.GetAgent(trial).type==CellType.vessel){
+                return true;
+            }
+        }
+        return false;
+    }
 
     void interactWithFields(gridManager M){
         M.ECM.Add(Isq(),-type.ECMDeg*M.ECM.Get(Isq()));
@@ -128,7 +138,7 @@ public class metastasis extends AgentGrid2D<CellEx> {
     FileIO outputFile=null;
 
     gridManager M;
-
+    CTCs ctcs=new CTCs();
     public metastasis(int x, int y, OpenGL2DWindow vis) {
         super(x, y, CellEx.class);
         this.vis=vis;
@@ -160,6 +170,11 @@ public class metastasis extends AgentGrid2D<CellEx> {
         for (CellEx c : this) {//iterate over all cells in the grid
             if(c.type== CellEx.CellType.vessel) {
                 // ... vessel stuff
+                continue;
+            }
+            if(c.tryIntravasate()){
+                ctcs.ctcs.add(c.type== CellEx.CellType.wgd);
+                c.Dispose();
                 continue;
             }
             c.interactWithFields(M);
@@ -218,6 +233,8 @@ public class metastasis extends AgentGrid2D<CellEx> {
         for (int tick = 0; tick < 20000; tick++) {
             vis.TickPause(0);//set to nonzero value to cap tick rate.
             grid.draw();
+            grid.ctcs.stepCTCs(grid.rn);
+            System.out.println(grid.ctcs.ctcs.size());
             grid.StepCells(tick);
             grid.M.degradeECM();
             grid.M.diffuse();
