@@ -160,6 +160,12 @@ public class OpenGL2DWindow implements Grid2D {
         }
     }
 
+    public void makeContextCurrent(){
+        if (active) {
+            glfwMakeContextCurrent(window);
+        }
+    }
+
     /**
      * returns true if the close button has been clicked in the Gui
      */
